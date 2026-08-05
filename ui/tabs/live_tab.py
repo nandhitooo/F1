@@ -16,10 +16,12 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QFrame,
     QGridLayout,
+    QTabWidget,
 )
 
 from core.openf1_client import OpenF1Client, latest_by_driver
 from ui.theme import TYRE_COLORS, get_team_color, COLOR_PRIMARY_RED, COLOR_TEXT_MUTED, COLOR_ACCENT_GREEN, COLOR_ACCENT_CYAN, COLOR_PANEL_BG, COLOR_BORDER
+from ui.tabs.track_map_tab import TrackMapTab
 
 
 class _FetchThread(QThread):
@@ -115,7 +117,11 @@ class LiveTab(QWidget):
 
         main_layout.addWidget(kpi_frame)
 
-        # Table Widget
+        # Sub Tabs for Live Data
+        self.sub_tabs = QTabWidget()
+        main_layout.addWidget(self.sub_tabs)
+
+        # Tab 1: Leaderboard Table
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -123,7 +129,11 @@ class LiveTab(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
-        main_layout.addWidget(self.table)
+        self.sub_tabs.addTab(self.table, "🏁 Leaderboard")
+
+        # Tab 2: Track Map
+        self.track_map = TrackMapTab()
+        self.sub_tabs.addTab(self.track_map, "🗺️ Track Map")
 
         # Bottom Info Banner
         note_frame = QFrame()
@@ -182,8 +192,6 @@ class LiveTab(QWidget):
         thread.error.connect(self._on_error)
         thread.error.connect(_clear_ref)
         thread.start()
-
-
 
     def _on_error(self, message):
         self.val_status.setText("● ERROR")
@@ -295,3 +303,6 @@ class LiveTab(QWidget):
         self.val_circuit.setText(circuit.upper())
         self.val_status.setText("● LIVE DATA ACTIVE")
         self.val_status.setStyleSheet(f"color: {COLOR_ACCENT_GREEN}; font-size: 13px; font-weight: bold;")
+        
+        # Trigger track map update
+        self.track_map.update_track()
