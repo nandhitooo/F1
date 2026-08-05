@@ -1,0 +1,7 @@
+cache_folder/*
+.env
+
+
+ui/__pycache__/*
+ui/tabs/__pycache__/*
+core/__pycache__/*
