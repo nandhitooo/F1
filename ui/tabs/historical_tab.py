@@ -1,11 +1,11 @@
 """Historical Analysis tab: loads a past session via FastF1 (in a background
-thread, since the first load per session can take a while) and shows
-results, fastest-lap telemetry, and a lap-time comparison chart."""
+thread) and shows results, fastest-lap telemetry, lap times, and driver comparison."""
 
 from PySide6.QtCore import QObject, Signal, QThread
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
+    QHBoxLayout,
     QFormLayout,
     QLineEdit,
     QComboBox,
@@ -27,15 +27,17 @@ class _LoadWorker(QObject):
     finished = Signal(object)
     error = Signal(str)
 
-    def __init__(self, year, event, session_type):
+    # Ubah parameter 'event' menjadi 'event_name' untuk menghindari konflik
+    def __init__(self, year, event_name, session_type):
         super().__init__()
         self.year = year
-        self.event = event
+        self.event_name = event_name
         self.session_type = session_type
 
     def run(self):
         try:
-            hs = HistoricalSession(self.year, self.event, self.session_type)
+            # Gunakan self.event_name di sini
+            hs = HistoricalSession(self.year, self.event_name, self.session_type)
             hs.load()
             self.finished.emit(hs)
         except Exception as exc:
@@ -79,6 +81,7 @@ class HistoricalTab(QWidget):
         self.sub_tabs = QTabWidget()
         layout.addWidget(self.sub_tabs)
 
+        # Tab 1: Results
         self.results_table = QTableWidget(0, 5)
         self.results_table.setHorizontalHeaderLabels(["Pos", "Driver", "Team", "Grid", "Status"])
         self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -86,13 +89,39 @@ class HistoricalTab(QWidget):
         self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.sub_tabs.addTab(self.results_table, "Results")
 
+        # Tab 2: Fastest Lap Telemetry
         self.telemetry_figure = Figure(figsize=(6, 4))
         self.telemetry_canvas = FigureCanvasQTAgg(self.telemetry_figure)
         self.sub_tabs.addTab(self.telemetry_canvas, "Fastest Lap Telemetry")
 
+        # Tab 3: Lap Times
         self.laptime_figure = Figure(figsize=(6, 4))
         self.laptime_canvas = FigureCanvasQTAgg(self.laptime_figure)
         self.sub_tabs.addTab(self.laptime_canvas, "Lap Times")
+
+        # Tab 4: Driver vs Driver Telemetry Comparison
+        compare_widget = QWidget()
+        compare_layout = QVBoxLayout(compare_widget)
+        
+        selectors_layout = QHBoxLayout()
+        self.driver1_combo = QComboBox()
+        self.driver2_combo = QComboBox()
+        self.compare_btn = QPushButton("Compare Telemetry")
+        self.compare_btn.clicked.connect(self._plot_driver_comparison)
+        
+        selectors_layout.addWidget(QLabel("Driver 1:"))
+        selectors_layout.addWidget(self.driver1_combo)
+        selectors_layout.addWidget(QLabel("Driver 2:"))
+        selectors_layout.addWidget(self.driver2_combo)
+        selectors_layout.addWidget(self.compare_btn)
+        
+        compare_layout.addLayout(selectors_layout)
+
+        self.compare_figure = Figure(figsize=(6, 5))
+        self.compare_canvas = FigureCanvasQTAgg(self.compare_figure)
+        compare_layout.addWidget(self.compare_canvas)
+        
+        self.sub_tabs.addTab(compare_widget, "Driver vs Driver")
 
     def load_session(self):
         try:
@@ -129,8 +158,10 @@ class HistoricalTab(QWidget):
         event_name = hs.session.event.get("EventName", hs.event)
         self.status_label.setText(f"Loaded: {event_name} — {hs.session.name}")
         self._populate_results()
+        self._populate_drivers()
         self._plot_telemetry()
         self._plot_lap_times()
+        self._plot_driver_comparison()
 
     def _populate_results(self):
         df = self.hs.results_table().reset_index(drop=True)
@@ -145,6 +176,16 @@ class HistoricalTab(QWidget):
             ]
             for col, val in enumerate(values):
                 self.results_table.setItem(i, col, QTableWidgetItem(val))
+
+    def _populate_drivers(self):
+        drivers = sorted(self.hs.session.laps["Driver"].dropna().unique().tolist())
+        self.driver1_combo.clear()
+        self.driver2_combo.clear()
+        self.driver1_combo.addItems(drivers)
+        self.driver2_combo.addItems(drivers)
+        if len(drivers) >= 2:
+            self.driver1_combo.setCurrentIndex(0)
+            self.driver2_combo.setCurrentIndex(1)
 
     def _plot_telemetry(self):
         try:
@@ -175,3 +216,41 @@ class HistoricalTab(QWidget):
         ax.legend(fontsize=6, ncol=4, loc="upper right")
         self.laptime_figure.tight_layout()
         self.laptime_canvas.draw()
+
+    def _plot_driver_comparison(self):
+        if not self.hs or not self.hs.session:
+            return
+        d1 = self.driver1_combo.currentText()
+        d2 = self.driver2_combo.currentText()
+        if not d1 or not d2:
+            return
+
+        try:
+            _, tel1 = self.hs.driver_telemetry(d1)
+            _, tel2 = self.hs.driver_telemetry(d2)
+        except Exception as exc:
+            QMessageBox.warning(self, "Telemetry Error", str(exc))
+            return
+
+        self.compare_figure.clear()
+        axs = self.compare_figure.subplots(2, 1, sharex=True)
+
+        # Plot Speed
+        axs[0].plot(tel1["Distance"], tel1["Speed"], label=d1, color="tab:blue")
+        axs[0].plot(tel2["Distance"], tel2["Speed"], label=d2, color="tab:orange")
+        axs[0].set_ylabel("Speed (km/h)")
+        axs[0].set_title(f"Telemetry Comparison: {d1} vs {d2} (Fastest Laps)")
+        axs[0].legend(loc="lower right", fontsize=8)
+        axs[0].grid(True, alpha=0.3)
+
+        # Plot Throttle
+        if "Throttle" in tel1.columns and "Throttle" in tel2.columns:
+            axs[1].plot(tel1["Distance"], tel1["Throttle"], label=f"{d1} Throttle", color="tab:blue", alpha=0.8)
+            axs[1].plot(tel2["Distance"], tel2["Throttle"], label=f"{d2} Throttle", color="tab:orange", alpha=0.8)
+        axs[1].set_xlabel("Distance (m)")
+        axs[1].set_ylabel("Throttle (%)")
+        axs[1].legend(loc="lower right", fontsize=8)
+        axs[1].grid(True, alpha=0.3)
+
+        self.compare_figure.tight_layout()
+        self.compare_canvas.draw()

@@ -58,3 +58,18 @@ class HistoricalSession:
             laps = laps.pick_drivers(driver_abbr) if hasattr(laps, "pick_drivers") else laps.pick_driver(driver_abbr)
         cols = [c for c in ["Driver", "LapNumber", "LapTime", "Compound"] if c in laps.columns]
         return laps[cols].copy()
+
+# Tambahkan method berikut di dalam kelas HistoricalSession (core/historical.py)
+
+    def driver_telemetry(self, driver_abbr: str):
+        """Returns (lap_row, telemetry_dataframe) for a driver's fastest lap."""
+        if self.session is None:
+            raise RuntimeError("Call load() first.")
+        laps = self.session.laps
+        drv_laps = laps.pick_drivers(driver_abbr) if hasattr(laps, "pick_drivers") else laps.pick_driver(driver_abbr)
+        if drv_laps.empty:
+            raise ValueError(f"No laps found for driver {driver_abbr}")
+        fastest = drv_laps.pick_fastest()
+        tel = fastest.get_telemetry()
+        cols = [c for c in ["Distance", "Speed", "Throttle", "Brake", "nGear"] if c in tel.columns]
+        return fastest, tel[cols].copy()
