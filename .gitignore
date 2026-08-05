@@ -1,7 +1,8 @@
 cache_folder/*
 .env
+__pycache__
+*.pyc
 
-
-ui/__pycache__/*
+ui/__pycache__/*    
 ui/tabs/__pycache__/*
 core/__pycache__/*
